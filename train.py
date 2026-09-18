@@ -1,21 +1,12 @@
+from config import *
 from tokenizer import CharacterTokenizer
 from model import MiniGPT
 import torch
 import torch.nn.functional as F
 
-#--------------------------------------------------------------
-# config
-model_path = 'experiments/checkpoints/baseline.pt'
+#------------------------------------------------------
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-batch_size = 64
-block_size = 256
-embd_dim = 128
-head_dim = 16
-n_heads = 3
-n_blocks = 5
-n_iters = 5000
-lr = 3e-4
-#--------------------------------------------------------------
+#------------------------------------------------------
 
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = f.read()
