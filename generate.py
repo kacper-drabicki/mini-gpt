@@ -1,23 +1,30 @@
-from config import *
-from model import MiniGPT
-from tokenizer import CharacterTokenizer
+import argparse
 import torch
+from pathlib import Path
+from model import MiniGPT, GPTConfig
+from tokenizer import CharacterTokenizer
 
 #------------------------------------------------------
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-max_tokens = 2000
-prompt = 'WILLIAM:'
+max_new_tokens = 500
+prompt = '\n'
 #------------------------------------------------------
-with open('input.txt', 'r', encoding='utf-8') as f:
-    text = f.read()
 
-tokenizer = CharacterTokenizer(text)
+parser = argparse.ArgumentParser()
+parser.add_argument('--dir', required=True)
+args = parser.parse_args()
 
-model = MiniGPT(n_blocks=n_blocks, n_heads=n_heads, embd_dim=embd_dim, head_dim=head_dim, vocab_size=tokenizer.vocab_size, block_size=block_size)
-model.load_state_dict(torch.load(model_path, weights_only=True))
+experiment_dir = Path(args.dir)
+checkpoint = torch.load(experiment_dir / 'checkpoint_last.pt', map_location=device)
+
+tokenizer = CharacterTokenizer(checkpoint['tokenizer_chars'])
+
+model = MiniGPT(GPTConfig(**checkpoint["model_config"]))
+model.load_state_dict(checkpoint['model_state_dict'])
 model.to(device)
+model.eval()
 
 context = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device).view(1,-1)
-text = model.generate(context, max_new_tokens=max_tokens)
+text = model.generate(context, max_new_tokens=max_new_tokens)
 print(tokenizer.decode(text[0].tolist()))
 
