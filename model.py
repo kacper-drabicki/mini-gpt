@@ -1,15 +1,27 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from dataclasses import dataclass
+
+@dataclass
+class GPTConfig:
+    block_size: int = 256 # maximum sequence length
+    vocab_size: int = 65
+    embd_dim: int = 128
+    head_dim: int = 16
+    dropout_rate: float = 0.2
+    n_heads: int = 3
+    n_blocks: int = 5
+    
 
 class Head(nn.Module):
 
-    def __init__(self, embd_dim: int, head_dim: int, block_size: int):
+    def __init__(self, config):
         super().__init__()
-        self.query = nn.Linear(embd_dim, head_dim, bias=False)
-        self.key = nn.Linear(embd_dim, head_dim, bias=False)
-        self.value = nn.Linear(embd_dim, head_dim, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.query = nn.Linear(config.embd_dim, config.head_dim, bias=False)
+        self.key = nn.Linear(config.embd_dim, config.head_dim, bias=False)
+        self.value = nn.Linear(config.embd_dim, config.head_dim, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(config.block_size, config.block_size)))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B,T,C = x.shape # batch_size, time_steps/block_size, channels/embd_dim
@@ -29,25 +41,28 @@ class Head(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, n_heads: int, embd_dim: int, head_dim: int, block_size: int):
+    def __init__(self, config):
         super().__init__()
-        self.heads = nn.ModuleList([Head(embd_dim, head_dim, block_size) for _ in range(n_heads)])
-        self.project = nn.Linear(n_heads * head_dim, embd_dim, bias=False)
+        self.heads = nn.ModuleList([Head(config) for _ in range(config.n_heads)])
+        self.project = nn.Linear(config.n_heads * config.head_dim, config.embd_dim, bias=False)
+        self.dropout = nn.Dropout(config.dropout_rate)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = torch.cat([head(x) for head in self.heads], dim=-1)
         out = self.project(out)
+        out = self.dropout(out)
 
         return out # (B,T,C)
 
 class FeedForward(nn.Module):
 
-    def __init__(self, embd_dim: int):
+    def __init__(self, config):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(embd_dim, 4*embd_dim),
+            nn.Linear(config.embd_dim, 4*config.embd_dim),
             nn.GELU(),
-            nn.Linear(4*embd_dim, embd_dim)
+            nn.Linear(4*config.embd_dim, config.embd_dim),
+            nn.Dropout(config.dropout_rate)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -56,12 +71,12 @@ class FeedForward(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, n_heads: int, embd_dim: int, head_dim: int, block_size: int):
+    def __init__(self, config):
         super().__init__()
-        self.attention = MultiHeadAttention(n_heads, embd_dim, head_dim, block_size)
-        self.ffwd = FeedForward(embd_dim)
-        self.ln1 = nn.LayerNorm(embd_dim)
-        self.ln2 = nn.LayerNorm(embd_dim)
+        self.attention = MultiHeadAttention(config)
+        self.ffwd = FeedForward(config)
+        self.ln1 = nn.LayerNorm(config.embd_dim)
+        self.ln2 = nn.LayerNorm(config.embd_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attention(self.ln1(x))
@@ -71,14 +86,14 @@ class Block(nn.Module):
 
 class MiniGPT(nn.Module):
 
-    def __init__(self, n_blocks: int, n_heads: int, embd_dim: int, head_dim: int, vocab_size: int, block_size: int):
+    def __init__(self, config):
         super().__init__()
-        self.block_size = block_size
-        self.token_embedding = nn.Embedding(vocab_size, embd_dim)
-        self.pos_embedding = nn.Embedding(block_size, embd_dim)
-        self.blocks = nn.Sequential(*[Block(n_heads, embd_dim, head_dim, block_size) for _ in range(n_blocks)])
-        self.ln = nn.LayerNorm(embd_dim)
-        self.lm_head = nn.Linear(embd_dim, vocab_size)
+        self.block_size = config.block_size
+        self.token_embedding = nn.Embedding(config.vocab_size, config.embd_dim)
+        self.pos_embedding = nn.Embedding(config.block_size, config.embd_dim)
+        self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_blocks)])
+        self.ln = nn.LayerNorm(config.embd_dim)
+        self.lm_head = nn.Linear(config.embd_dim, config.vocab_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B,T = x.shape
@@ -92,6 +107,7 @@ class MiniGPT(nn.Module):
 
         return logits
 
+    @torch.no_grad()
     def generate(self, x, max_new_tokens: int = 500):
 
         for _ in range(max_new_tokens):

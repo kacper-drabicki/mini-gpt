@@ -1,9 +1,0 @@
-model_path = 'experiments/checkpoints/baseline.pt'
-batch_size = 64
-block_size = 256
-embd_dim = 128
-head_dim = 16
-n_heads = 3
-n_blocks = 5
-n_iters = 5000
-lr = 3e-4
