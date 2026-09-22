@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from datetime import datetime
 from pathlib import Path
 from dataclasses import asdict
-from torch.utils.data import Dataset, DataLoader
 from tokenizer import CharacterTokenizer
 from model import MiniGPT, GPTConfig
 
@@ -26,8 +25,7 @@ train_fraction = 0.9
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 batch_size: int = 256
 learning_rate: float = 3e-4
-n_epochs: int = 3
-# n_iters: int = 10000 # works with get_batch() that was replaced with DataLoader; use n_epochs
+n_steps: int = 5000
 #------------------------------------------------------
 torch.manual_seed(seed)
 #------------------------------------------------------
@@ -40,12 +38,15 @@ data = torch.tensor(tokenizer.encode(text), dtype=torch.long)
 n = int(train_fraction*len(data))
 train_data = data[:n]
 val_data = data[n:]
+train_data, val_data = train_data.to(device), val_data.to(device)
 #------------------------------------------------------
 
 config = GPTConfig()
 
-model = MiniGPT(config)
-model = model.to(device)
+raw_model = MiniGPT(config)
+raw_model = raw_model.to(device)
+
+model = torch.compile(raw_model)
 
 #------------------------------------------------------
 with config_path.open('w') as f:
@@ -58,38 +59,17 @@ with config_path.open('w') as f:
         'train_fraction': train_fraction,
         'batch_size': batch_size,
         'learning_rate': learning_rate,
-        'n_epochs': n_epochs,
+        'n_steps': n_steps,
         'model_config': asdict(config),
         'tokenizer_chars': tokenizer.chars}, f
         )
 #------------------------------------------------------
-def get_batch(split):
+def get_batch(split: str):
     data = train_data if split == 'train' else val_data
     idx = torch.randint(len(data) - config.block_size, (batch_size,))
     x = torch.stack([data[i: i+config.block_size] for i in idx])
     y = torch.stack([data[i+1: i+config.block_size+1] for i in idx])
-    x, y = x.to(device), y.to(device)
     return x, y
-#------------------------------------------------------
-class TextDataset(Dataset):
-    def __init__(self, data, block_size):
-        self.data = data
-        self.block_size = block_size
-
-    def __len__(self):
-        return len(self.data) - self.block_size
-
-    def __getitem__(self, idx):
-        x = self.data[idx:idx + self.block_size]
-        y = self.data[idx + 1:idx + self.block_size + 1]
-
-        return x, y
-
-train_dataset = TextDataset(train_data, config.block_size)
-val_dataset = TextDataset(val_data, config.block_size)
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 #------------------------------------------------------
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -99,66 +79,52 @@ def compute_loss(logits, targets):
     B, T, V = logits.shape # batch_size, sequence_length, vocab_size
     return F.cross_entropy(logits.view(B*T, V), targets.view(B*T))
 
-def log_metrics(epoch: int, train_loss: float, val_loss: float) -> None:
+def log_metrics(step: int, train_loss: float, val_loss: float) -> None:
     with metrics_path.open('a') as f:
         f.write(
             json.dumps({
-            'epoch': epoch + 1,
+            'step': step + 1,
             'train_loss': train_loss,
             'val_loss': val_loss
             }) + "\n")
-#------------------------------------------------------
-# train_iter = iter(train_loader)
 
-for epoch in range(n_epochs):
+tokens_per_step = batch_size * config.block_size
+#------------------------------------------------------
+for step in range(n_steps):
 
     start = time.perf_counter()
 
     model.train()
 
-    train_loss = 0.0
-    n_batches = 0
-    # x, y = get_batch('train')
-    # x, y = next(train_iter)
-    for x, y in train_loader:
-        x, y = x.to(device), y.to(device)
-
+    x, y = get_batch('train')
+    # automatically use BF16 where beneficial for faster, lower-memory computation
+    with torch.autocast(device_type=device, dtype=torch.bfloat16): 
         logits = model(x)
         loss = compute_loss(logits, y)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()    
-        optimizer.step()
 
-        train_loss += loss.item()
-        n_batches += 1
-
-    train_loss /= n_batches
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()    
+    optimizer.step()
 
     #------------------------------------------------------
-    if epoch % 1 == 0 or epoch == n_epochs - 1:
+    if step % 100 == 0 or step == n_steps - 1:
         model.eval()
 
-        val_loss = 0.0
-        n_val_batches = 0
+        x_val, y_val = get_batch('val')
+        with torch.no_grad():
+            logits = model(x_val)
+        val_loss = compute_loss(logits, y_val)
 
-        for x_val, y_val in val_loader:
-            x_val, y_val = x_val.to(device), y_val.to(device)
-            with torch.no_grad():
-                logits = model(x_val)
-            val_loss += compute_loss(logits, y_val).item()
-            n_val_batches += 1
-
-        val_loss /= n_val_batches
-
-        log_metrics(epoch, train_loss, val_loss)
+        log_metrics(step, loss.item(), val_loss.item())
     #------------------------------------------------------
-    epoch_time = time.perf_counter() - start
-    print(f'Epoch time: {epoch_time:.4f} seconds')
+    step_time = time.perf_counter() - start
+    tokens_per_second = tokens_per_step / step_time
+    print(f'Step {step} : time {step_time:.4f} seconds | tokens/s {tokens_per_second:,.0f}' )
 #------------------------------------------------------
 torch.save(
     {
-    'epoch': epoch + 1,
-    'model_state_dict': model.state_dict(),
+    'step': step + 1,
+    'model_state_dict': raw_model.state_dict(),
     'optimizer_state_dict': optimizer.state_dict(),
     'model_config': asdict(config),
     'tokenizer_chars': tokenizer.chars
