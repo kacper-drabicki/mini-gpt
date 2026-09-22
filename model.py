@@ -8,10 +8,10 @@ class GPTConfig:
     block_size: int = 256 # maximum sequence length
     vocab_size: int = 65
     embd_dim: int = 128
-    head_dim: int = 16
-    dropout_rate: float = 0.2
-    n_heads: int = 3
-    n_blocks: int = 5
+    head_dim: int = 32
+    dropout_rate: float = 0.1
+    n_heads: int = 4
+    n_blocks: int = 6
     
 
 class Head(nn.Module):
