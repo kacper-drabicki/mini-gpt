@@ -6,7 +6,7 @@ from dataclasses import dataclass
 @dataclass
 class GPTConfig:
     block_size: int = 256 # maximum sequence length
-    vocab_size: int = 65
+    vocab_size: int = 50257
     embd_dim: int = 128
     head_dim: int = 16
     dropout_rate: float = 0.2
@@ -94,6 +94,16 @@ class MiniGPT(nn.Module):
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_blocks)])
         self.ln = nn.LayerNorm(config.embd_dim)
         self.lm_head = nn.Linear(config.embd_dim, config.vocab_size)
+
+         # Initialize all parameters
+        self.apply(self._init_weights)
+        
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B,T = x.shape

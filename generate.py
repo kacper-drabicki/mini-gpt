@@ -1,13 +1,13 @@
 import argparse
 import torch
+import tiktoken
 from pathlib import Path
 from model import MiniGPT, GPTConfig
-from tokenizer import CharacterTokenizer
 
 #------------------------------------------------------
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 max_new_tokens = 500
-prompt = '\n'
+prompt = 'WILLIAM:'
 #------------------------------------------------------
 
 def main():
@@ -18,7 +18,7 @@ def main():
     experiment_dir = Path(args.dir)
     checkpoint = torch.load(experiment_dir / 'checkpoint_last.pt', map_location=device)
 
-    tokenizer = CharacterTokenizer(checkpoint['tokenizer_chars'])
+    tokenizer = tiktoken.get_encoding('gpt2')
 
     model = MiniGPT(GPTConfig(**checkpoint["model_config"]))
     model.load_state_dict(checkpoint['model_state_dict'])

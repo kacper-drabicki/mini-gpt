@@ -2,11 +2,11 @@ import time
 import json
 import torch
 import torch.nn.functional as F
+import tiktoken
 from datetime import datetime
 from pathlib import Path
 from dataclasses import asdict
 from torch.utils.data import Dataset, DataLoader
-from tokenizer import CharacterTokenizer
 from model import MiniGPT, GPTConfig
 
 
@@ -24,7 +24,7 @@ seed = 42
 dataset: str = 'input.txt'
 train_fraction = 0.9
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-batch_size: int = 256
+batch_size: int = 32
 learning_rate: float = 3e-4
 n_epochs: int = 3
 # n_iters: int = 10000 # works with get_batch() that was replaced with DataLoader; use n_epochs
@@ -34,7 +34,7 @@ torch.manual_seed(seed)
 with open(dataset, 'r', encoding='utf-8') as f:
     text = f.read()
 
-tokenizer = CharacterTokenizer(text)
+tokenizer = tiktoken.get_encoding('gpt2')
 
 data = torch.tensor(tokenizer.encode(text), dtype=torch.long)
 n = int(train_fraction*len(data))
@@ -59,8 +59,7 @@ with config_path.open('w') as f:
         'batch_size': batch_size,
         'learning_rate': learning_rate,
         'n_epochs': n_epochs,
-        'model_config': asdict(config),
-        'tokenizer_chars': tokenizer.chars}, f
+        'model_config': asdict(config)}, f
         )
 #------------------------------------------------------
 def get_batch(split):
@@ -132,6 +131,8 @@ for epoch in range(n_epochs):
         train_loss += loss.item()
         n_batches += 1
 
+        print(f'batch {n_batches}: loss {train_loss / n_batches}')
+
     train_loss /= n_batches
 
     #------------------------------------------------------
@@ -160,8 +161,7 @@ torch.save(
     'epoch': epoch + 1,
     'model_state_dict': model.state_dict(),
     'optimizer_state_dict': optimizer.state_dict(),
-    'model_config': asdict(config),
-    'tokenizer_chars': tokenizer.chars
+    'model_config': asdict(config)
     }, checkpoint_last_path
 )
 
