@@ -23,7 +23,7 @@ seed = 42
 dataset: str = 'input.txt'
 train_fraction = 0.9
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-batch_size: int = 256
+batch_size: int = 64
 learning_rate: float = 3e-4
 n_steps: int = 5000
 #------------------------------------------------------

@@ -1,3 +1,4 @@
+import time
 import argparse
 import torch
 from pathlib import Path
@@ -6,8 +7,8 @@ from tokenizer import CharacterTokenizer
 
 #------------------------------------------------------
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-max_new_tokens = 500
-prompt = '\n'
+max_new_tokens = 1000
+prompt = 'WILLIAM:\n'
 #------------------------------------------------------
 
 def main():
@@ -26,8 +27,13 @@ def main():
     model.eval()
 
     context = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device).view(1,-1)
+
+    start = time.perf_counter()
     text = model.generate(context, max_new_tokens=max_new_tokens)
+    generation_time = time.perf_counter() - start
+
     print(tokenizer.decode(text[0].tolist()))
+    print(f'Generation time: {generation_time:.4f} seconds')
 
 if __name__ == '__main__':
     main()
