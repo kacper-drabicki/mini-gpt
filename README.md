@@ -6,13 +6,12 @@ A small character-level GPT trained from scratch with PyTorch.
 
 ```bash
 uv sync
-source .venv/bin/activate
 ```
 
 ### Train
 
 ```bash
-python train.py
+uv run python3 train.py
 ```
 
 Training creates a timestamped experiment directory under `experiments/`.
@@ -20,5 +19,5 @@ Training creates a timestamped experiment directory under `experiments/`.
 ### Generate text
 
 ```bash
-python generate.py --dir experiments/<timestamp>
+uv run python3 generate.py --dir experiments/<timestamp>
 ```
